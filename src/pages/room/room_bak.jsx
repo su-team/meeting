@@ -42,28 +42,35 @@ class Room extends Component {
     constructor(props) {
         super(props);
 
+        
         this.state = {
 
             // join start
             roomName:'',
             password:'',
             nickName:'',
-            joined: false,
-            loading: false,
-            // join end
-
             user: {},
             user_room: {
                 role: undefined
             },
+            confr: {},
+            own_stream:null,
+            // join end
+            time:0,// 秒的单位
             stream_list: [null],//默认 main画面为空
             talker_list_show:false,
             audio:true,
-            video:true,
+            video:false,
+
+            joined: false,
+            loading: false,
 
             talker_is_full:false, //主播已满
+
+            shared_desktop:false
         };
 
+        this.toggle_main = this.toggle_main.bind(this);
     }
 
     // join fun start
@@ -100,6 +107,7 @@ class Room extends Component {
                 user_room
             },() => {
                 _this.publish();
+                _this.get_confr_info();
             })
     
             // this.startTime()
@@ -167,6 +175,104 @@ class Room extends Component {
         emedia.mgr.onMemberLeave = function (member, reason, failed) {
             console.log('onMemberLeave', member, reason, failed);
             message.success(`${member.nickName || member.name} 退出了会议`);
+
+            function get_failed_reason(failed) {
+                let reasons = {
+                    '-9527' : "失败,网络原因",
+                    '-500' : "Ticket失效",
+                    '-502' : "Ticket过期",
+                    '-504' : "链接已失效",
+                    '-508' : "会议无效",
+                    '-510' : "服务端限制"
+                }
+
+                return reasons[failed]
+            }
+
+            let reason_text = '正常挂断';
+
+
+            let reasons = {
+                0: '正常挂断', 
+                1: "没响应",
+                2: "服务器拒绝",
+                3: "对方忙",
+                4: "网络原因",
+                5: "不支持",
+                10: "其他设备登录",
+                11: "会议关闭"
+            }
+
+            if(reason){
+                reason_text = reasons[reason];
+            }
+
+            if(reason == 4 && failed){
+                reason_text = get_failed_reason(failed);
+            }
+        };
+
+        emedia.mgr.onConfrAttrsUpdated = function(cattrs){ 
+            console.log('onConfrAttrsUpdated', cattrs);
+            // 会议属性变更
+            // 上麦、下麦、申请成为管理员 遍历判断
+            // 
+
+            let { username:my_username } = _this.state.user //自己的name
+            let { role } = _this.state.user_room
+            cattrs.map(item => {
+                if(item.key == my_username && role != emedia.mgr.Role.ADMIN ){
+                    return
+                }
+                if(
+                    item.val == 'request_tobe_speaker' && 
+                    item.op == 'ADD' &&
+                    role == emedia.mgr.Role.ADMIN
+                ) { //处理上麦
+                    _this.handle_apply_talker(item.key);
+                    return
+                }
+                if(
+                    item.val == 'request_tobe_audience' && 
+                    item.op == 'ADD' &&
+                    role == emedia.mgr.Role.ADMIN
+                ) { //处理下麦
+                    _this.handle_apply_audience(item.key);
+                    return
+                }
+
+            })
+        };
+
+        emedia.mgr.onRoleChanged = function (role) {
+
+            let { user_room } = _this.state;
+
+            // 被允许上麦
+            if(
+                user_room.role == 1 &&
+                role == 3
+            ) {
+                user_room.role = role;
+                _this.setState({ user_room },_this.publish);
+                message.success('你已经上麦成功,并且推流成功')
+                return
+            }
+
+            // 被允许下麦
+            if(
+                (user_room.role == 3 || user_room.role == 7) &&
+                role == 1
+            ) {
+                user_room.role = role;
+                _this.setState({ user_room });
+                message.success('你已经下麦了,并且停止推流')
+                return
+            }
+
+            // 变成管理员
+            user_room.role = role;
+            _this.setState({ user_room });
         };
 
         emedia.mgr.onAdminChanged = function(admin) {
@@ -197,6 +303,125 @@ class Room extends Component {
         emedia.mgr.publish({ audio, video });
     }
 
+    _get_nickName_by_username(username) {
+        if(!username){
+            return
+        }
+
+        let member_name = 'easemob-demo#chatdemoui_' + username;
+        let nickName = username;
+        let { stream_list } = this.state;
+        stream_list.map(item => {
+            if(
+                item &&
+                item.member &&
+                item.member.name == member_name
+            ){
+                nickName = item.member.nickName || username
+            }
+        })
+
+        return nickName
+    }
+    // 上麦申请
+    apply_talker() {
+        let { username } = this.state.user;
+
+        message.success('上麦申请已发出，请等待主持人同意')
+        
+        if(!username) {
+            return
+        }
+
+        let options = {
+            key:username,
+            val:'request_tobe_speaker'
+        }
+        emedia.mgr.setConferenceAttrs(options)
+    }
+    handle_apply_talker(username) {
+        if(!username){
+            return
+        }
+
+        let member_name = 'easemob-demo#chatdemoui_' + username; // sdk 需要一个fk 格式的username
+        const { confirm } = Modal;
+
+        let confr = this.state.user_room;
+
+        confirm({
+            title:`是否同意${this._get_nickName_by_username(username)}的上麦请求`,
+            async onOk() {
+                await emedia.mgr.grantRole(confr, [member_name], 3);
+
+                // delete cattrs,处理完请求删除会议属性
+                let options = {
+                    key:username,
+                    val:'request_tobe_speaker'
+                }
+                emedia.mgr.deleteConferenceAttrs(options);
+            },
+            cancelText:'取消',
+            okText:'同意'
+        });
+
+
+    }
+    // 下麦申请
+    apply_audience() {
+
+        let { username } = this.state.user;
+        let { role } = this.state.user_room
+
+        if(!username) {
+            return
+        }
+
+        if(role != 7){
+            message.success('下麦申请已发出，请等待主持人同意')
+        }
+        let options = {
+            key:username,
+            val:'request_tobe_audience'
+        }
+        emedia.mgr.setConferenceAttrs(options)
+    }
+    
+    async handle_apply_audience(username) {
+        if(!username){
+            return
+        }
+
+        const { confirm } = Modal;
+
+        let member_name = 'easemob-demo#chatdemoui_' + username; // sdk 需要一个fk 格式的name
+        let confr = this.state.user_room;
+
+        // delete cattrs,处理完请求删除会议属性
+        let options = {
+            key:username,
+            val:'request_tobe_audience'
+        }
+
+        let { username:my_username } = this.state.user;
+
+        if( username == my_username) { //管理员下麦自己
+            await emedia.mgr.grantRole(confr, [member_name], 1);
+            emedia.mgr.deleteConferenceAttrs(options)
+
+        }else {
+            confirm({
+                title:`是否同意${this._get_nickName_by_username(username)}的下麦请求`,
+                async onOk() {
+                    await emedia.mgr.grantRole(confr, [member_name], 1);
+                    emedia.mgr.deleteConferenceAttrs(options)
+                },
+                cancelText:'取消',
+                okText:'同意'
+            });
+        }
+    }
+
     admin_changed(memberId) {
 
         if(!memberId) {
@@ -219,7 +444,119 @@ class Room extends Component {
         this.setState({ stream_list })
 
     }
+    toggle_main(index) {
+
+        if(!index) {
+            return
+        }
+
+        let { stream_list } = this.state;
+
+        let first_item = stream_list.splice(index,1)[0];
+        stream_list.unshift(first_item);
+
+
+        this.setState({ stream_list },this._stream_bind_video)
+    }
     
+    // toggle 代指关闭或开启
+
+    // 关闭或开启自己的
+    async toggle_video() {
+
+        let { role } = this.state.user_room;
+        let { own_stream } = this.state;
+        if(role == 1){
+            return
+        }
+
+        if(!own_stream) {
+            return
+        }
+
+        let { video } = this.state
+        if(video){
+            await emedia.mgr.pauseVideo(own_stream);
+            video = !video
+            this.setState({ video })
+        }else {
+            await emedia.mgr.resumeVideo(own_stream);
+            video = !video
+            this.setState({ video })
+        }
+
+    }
+    video_change = e => {
+        this.setState({
+          video: e.target.checked,
+        });
+    };
+    async toggle_audio() {
+        let { role } = this.state.user_room;
+        let { own_stream } = this.state;
+        if(role == 1){
+            return
+        }
+
+        if(!own_stream) {
+            return
+        }
+
+        let { audio } = this.state
+        if(audio){
+            await emedia.mgr.pauseAudio(own_stream);
+            audio = !audio
+            this.setState({ audio })
+        }else {
+            await emedia.mgr.resumeAudio(own_stream);
+            audio = !audio
+            this.setState({ audio })
+        }
+    }
+
+    audio_change = e => {
+        this.setState({
+          audio: e.target.checked,
+        });
+    };
+    
+    async share_desktop() {
+        try {
+            let _this = this; 
+
+            var options = {
+                stopSharedCallback: () => _this.stop_share_desktop()
+            }
+            await emedia.mgr.shareDesktopWithAudio(options);
+            
+            this.setState({ shared_desktop:true });
+        } catch (err) {
+            if( //用户取消也是 -201 所以两层判断
+                err.error == -201 &&
+                err.errorMessage.indexOf('ShareDesktopExtensionNotFound') > 0
+            ){
+                message.error('请确认已安装共享桌面插件 或者是否使用的 https域名');
+            }
+        }
+    }
+
+    stop_share_desktop() {
+        let { stream_list } = this.state;
+
+        stream_list.map((item) => {
+            if(
+                item &&
+                item.stream &&
+                item.stream.type == emedia.StreamType.DESKTOP
+            ){
+                emedia.mgr.unpublish(item.stream);
+            }
+        })
+        
+        this.setState({ 
+            shared_desktop:false
+        });
+    }
     _on_stream_added(member, stream) {
         if(!member || !stream) {
             return
@@ -231,9 +568,15 @@ class Room extends Component {
             let { role } = this.state.user_room;
             member.role = role;
 
-            stream_list[0] = { stream, member };
-        }else{
-            stream_list.push({ stream, member })
+            if( stream.type != emedia.StreamType.DESKTOP ) { // 自己推的人像流（用来被控制开关摄像头）
+                this.setState({ own_stream: stream }) //用来控制流
+            }
+        }
+
+        if(stream.located() && !stream_list[0]){// 自己publish的流 并且main没有画面
+           stream_list[0] = { stream, member };
+        } else {
+            stream_list.push({stream,member});
         }
 
         this.setState({ stream_list:stream_list },this._stream_bind_video)
@@ -276,9 +619,48 @@ class Room extends Component {
                 }
             }
         });
+
+        // 当bind stream to video 就监听一下video
+        this._on_media_chanaged();
     }
 
-    
+    //监听音视频变化
+    _on_media_chanaged() {
+         this.set_stream_item_changed = (constaints, id) => {
+
+            if(!id || !constaints) {
+                return
+            }
+
+
+            let { stream_list } = this.state
+            let { aoff,voff } = constaints
+            stream_list = stream_list.map(item => {
+                if(
+                    item &&
+                    item.stream &&
+                    item.stream.id == id
+                ){
+                    item.stream.aoff = aoff
+                    item.stream.voff = voff
+                }
+
+                return item
+            })
+
+            this.setState({ stream_list })
+        }
+
+
+        let _this = this;
+        for (const key in this.refs) {
+            let el = this.refs[key];
+            let stream_id = key.split('-')[2];
+            emedia.mgr.onMediaChanaged(el, function (constaints) {
+                _this.set_stream_item_changed(constaints, stream_id)
+            });
+        } 
+    }
     _get_header_el() { 
 
         let { roomName, stream_list } = this.state;
@@ -308,6 +690,7 @@ class Room extends Component {
                         {/* <span>network</span> */}
                         <span className="name">{roomName || '房间名称'}</span>
                     </div>
+                    <div className="time">{this._get_tick()}</div>
                 </div>
 
                 <div onClick={() => this.leave()} style={{cursor: 'pointer',color:'#EF413F'}}>
@@ -320,6 +703,7 @@ class Room extends Component {
     _get_drawer_component() {
         let _this = this;
         let { stream_list } = this.state;
+        let { audienceTotal } = this.state.confr;
 
         function get_talkers() {
             let talkers = 0;
@@ -339,7 +723,7 @@ class Room extends Component {
 
         return (
             <Drawer 
-                title={`主播${get_talkers()} 观众0`}
+                title={`主播${get_talkers()} 观众${audienceTotal}`}
                 placement="right"
                 closable={false}
                 visible={this.state.talker_list_show}
@@ -355,9 +739,13 @@ class Room extends Component {
                 }) }
             </Drawer>
         )
+
+
+       
+
     }
 
-    _get_video_item(talker_item) {
+    _get_video_item(talker_item,index) {
 
         let { stream, member } = talker_item;
         if(
@@ -384,6 +772,7 @@ class Room extends Component {
             <div 
                 key={id} 
                 className="item"
+                onDoubleClick={ index ? () => {this.toggle_main(index)} : () => {}} //mian 图不需要点击事件，所以不传index÷
             >
 
                 <div className="info">
@@ -402,6 +791,18 @@ class Room extends Component {
                     </div>
                 </div>
 
+                {/* <Popconfirm
+                    title="是否禁言该用户?"
+                    placement="topLeft"
+                    // onConfirm={confirm}
+                    // onCancel={cancel}
+                    okText="禁言"
+                    cancelText="取消"
+                    getPopupContainer = {() => document.querySelector('.ant-drawer-body')}
+                >
+                    <span className="no-speak-action">禁言</span>
+                </Popconfirm> */}
+                
                 <video ref={`list-video-${id}`} autoPlay></video>
             </div>
         )
@@ -410,11 +811,64 @@ class Room extends Component {
     }
 
     _get_footer_el() {
+        let { role } = this.state.user_room
+        let { audio, video, shared_desktop} = this.state
+        
         return (
             <div className="actions-wrap">
 
                 <img src={get_img_url_by_name('apply-icon')} style={{visibility:'hidden'}}/>
-                <div className="actions" style={{width:'100px'}}> </div>
+                <div className="actions">
+                    {
+                        <Tooltip title={ audio ? '静音' : '解除静音'}>
+                            <img src={audio ? 
+                                        get_img_url_by_name('audio-is-open-icon') : 
+                                        get_img_url_by_name('audio-is-close-icon')} 
+                                    onClick={() => this.toggle_audio()}/>
+                        </Tooltip>
+                           
+                    }
+                    {
+                        <Tooltip title={ video ? '关闭视频' : '开启视频'}>
+                            <img style={{margin:'0 10px'}}
+                                   src={video ? 
+                                       get_img_url_by_name('video-is-open-icon') : 
+                                       get_img_url_by_name('video-is-close-icon')} 
+                                   onClick={() => this.toggle_video()}/>
+                        </Tooltip>
+                    }
+                    {
+                        role == 1 ? 
+                        <Tooltip title='申请上麦'>
+                            <img 
+                                src={get_img_url_by_name('apply-to-talker-icon')} 
+                                onClick={() => this.apply_talker()}
+                            />
+                        </Tooltip> :
+                        <Tooltip title='下麦'>
+                            <img 
+                                src={get_img_url_by_name('apply-to-audience-icon')} 
+                                onClick={() => this.apply_audience()}
+                            /> 
+                        </Tooltip>
+
+                    }
+                    {
+                        shared_desktop ? 
+                        <Tooltip title='停止共享桌面'>
+                            <img 
+                                src={get_img_url_by_name('stop-share-desktop-icon')} 
+                                onClick={() => this.stop_share_desktop()}
+                            />
+                        </Tooltip> :
+                        <Tooltip title='共享桌面'>
+                            <img 
+                                src={get_img_url_by_name('share-desktop-icon')} 
+                                onClick={() => this.share_desktop()}
+                            /> 
+                        </Tooltip>
+                    }
+                </div>
                 <img 
                     src={get_img_url_by_name('expand-icon')} 
                     onClick={this.expand_talker_list} 
@@ -432,7 +886,51 @@ class Room extends Component {
             talker_list_show:false
         })
     }
-    
+    startTime() {
+        let _this = this;
+        this.timeID = setInterval(
+            () => {
+                _this.setState(state => ({
+                    time:state.time + 1
+                }))
+            },
+            1000
+        )
+    }
+    _get_tick() {
+        let { time } = this.state
+
+        function get_second(second){
+            return second<10 ? ('0'+second) : second
+        }
+        function get_minute(minute){
+            return minute<10 ? ('0'+minute) : minute
+        }
+        let time_str = ''
+        if(time < 60){
+            time_str = '00:' + get_second(time)
+        }else if(time >= 60){
+            let minute = get_minute(parseInt(time/60));
+            let surplus_second = get_second(time%60)
+            time_str = minute +':'+ surplus_second
+        }
+        return time_str
+    }
+
+    // 获取会议信息
+    get_confr_info = async () => {
+        let { confrId } = this.state.user_room;
+        let { password } = this.state;
+
+        if(!confrId){
+            return
+        }
+
+        const confr = await emedia.mgr.selectConfr(confrId, password);
+
+        this.setState({ confr:confr.confr })
+        
+    }
     close_talker_model = () => {
         this.setState({
             talker_is_full: false
@@ -554,6 +1052,7 @@ class Room extends Component {
                         {this._get_header_el()}
                     </Header>
                     <Content>
+                        {/* {main_stream ? this._get_video_item(main_stream) : ''} */}
                         {main_stream ? <video ref={`list-video-${main_stream.stream.id}`} autoPlay></video> : ''}
                     </Content>
                     {this._get_drawer_component()}
