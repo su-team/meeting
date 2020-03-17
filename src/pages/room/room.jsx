@@ -22,7 +22,6 @@ import emedia from 'easemob-emedia';
 import login from './login.js'
 
 // assets
-
 const requireContext = require.context('../../assets/images', true, /^\.\/.*\.png$/)// 通过webpack 获取 img
 const get_img_url_by_name = (name) => {
     if(!name){
@@ -37,6 +36,132 @@ const get_img_url_by_name = (name) => {
 const Item = Form.Item 
 
 const { Header, Content, Footer } = Layout;
+
+class RoomHeader extends Component {
+
+    render() {
+        let { roomName, stream_list } = this.props;
+        let admin = '';
+        stream_list.map(item => {
+            
+            if(
+                item &&
+                item.member && 
+                item.member.role == 7
+            ) {
+                admin = item.member.name.slice(-5);
+                return
+            }
+        })
+
+        return (
+            <Header>
+                <div className="info">
+                    <div>
+                        <img src={get_img_url_by_name('logo-text-room')}/>
+                    </div>
+                    <div style={{lineHeight:1}}>
+                        <div>
+                            <Tooltip title={'主持人: ' + (admin || 'sqx')} placement="bottom">
+                                <img src={get_img_url_by_name('admin-icon')} style={{marginTop:'-5px'}}/>
+                            </Tooltip>
+                            {/* <span>network</span> */}
+                            <span className="name">{roomName || '房间名称'}</span>
+                        </div>
+                    </div>
+
+                    <div onClick={() => this.leave()} style={{cursor: 'pointer',color:'#EF413F'}}>
+                        <img src={get_img_url_by_name('leave-icon')} />
+                        <span>离开房间</span>
+                    </div>
+                </div>
+            </Header>
+
+        )
+    }
+}
+
+class TalkerList extends Component {
+
+    componentDidMount() {
+        this.streamBindVideo()
+    }
+    componentDidUpdate() {
+        this.streamBindVideo()
+    }
+    streamBindVideo = () => {
+        
+        let { stream_list } = this.props;
+
+        let _this = this;
+        stream_list.map(item => {
+            if( item ){
+
+                let { id } = item.stream;
+                let el = _this.refs[`list-video-${id}`];
+    
+                let { stream, member } = item;
+                if( stream.located() ){
+                    emedia.mgr.streamBindVideo(stream, el);
+                }else {
+                    emedia.mgr.subscribe(member, stream, true, true, el)
+                }
+            }
+        });
+    }
+    render() {
+
+        let _this = this;
+        let { stream_list } = this.props;
+    
+        function get_talkers() {
+            let talkers = 0;
+            let { stream_list } = _this.props;
+            stream_list.map(item => {
+                if(
+                    item &&
+                    item.stream &&
+                    item.stream.type != emedia.StreamType.DESKTOP
+                ){ //null 的不计数 共享桌面不计数
+                    talkers++
+                }
+            })
+            return talkers
+        }
+    
+        return (
+            <Drawer 
+                title={`主播${get_talkers()} 观众0`}
+                placement="right"
+                closable={false}
+                visible={true}
+                mask={false}
+                getContainer={false}
+                width="336px"
+            >
+                <img 
+                    src={get_img_url_by_name('expand-icon')} 
+                    className='expand-icon'
+                    // onClick={this.collapse_talker_list}
+                 />
+                { stream_list.map((item) => {
+                    if( item ){
+                        let { id } = item.stream
+                        return (
+                            <div 
+                                key={id} 
+                                className="item"
+                            >
+                                <video ref={`list-video-${id}`} autoPlay></video>
+                            </div>
+                        )
+                    }
+                }) }
+            </Drawer>
+        )
+    }
+}
+
 
 class Room extends Component {
     constructor(props) {
@@ -56,8 +181,7 @@ class Room extends Component {
             user_room: {
                 role: undefined
             },
-            stream_list: [null],//默认 main画面为空
-            talker_list_show:false,
+            stream_list: [],
             audio:true,
             video:true,
 
@@ -169,13 +293,6 @@ class Room extends Component {
             message.success(`${member.nickName || member.name} 退出了会议`);
         };
 
-        emedia.mgr.onAdminChanged = function(admin) {
-            let { memberId } = admin;
-            if(!memberId){
-                return
-            }
-            _this.admin_changed(memberId)
-        }
     }
 
     leave() {
@@ -196,29 +313,6 @@ class Room extends Component {
         let { audio,video } = this.state //push 流取off(关) 的反值
         emedia.mgr.publish({ audio, video });
     }
-
-    admin_changed(memberId) {
-
-        if(!memberId) {
-            return
-        }
-
-        let { stream_list } = this.state;
-
-        stream_list.map(item => { //遍历所有 stream_list 将这个流的role 变为管理员
-            if(item && item.member){
-                if(memberId == item.member.id) {
-                    item.member.role = emedia.mgr.Role.ADMIN;
-                    let name = item.member.nickName || item.member.name //优先获取昵称
-                    message.success(`${name} 成为了管理员`)
-                }
-
-            }
-        })
-
-        this.setState({ stream_list })
-
-    }
     
     _on_stream_added(member, stream) {
         if(!member || !stream) {
@@ -230,13 +324,10 @@ class Room extends Component {
         if(stream.located()) {//自己 publish的流，添加role 属性
             let { role } = this.state.user_room;
             member.role = role;
-
-            stream_list[0] = { stream, member };
-        }else{
-            stream_list.push({ stream, member })
         }
+        stream_list.push({ stream, member })
 
-        this.setState({ stream_list:stream_list },this._stream_bind_video)
+        this.setState({ stream_list })
     } 
     _on_stream_removed(stream) {
         if(!stream){
@@ -255,196 +346,14 @@ class Room extends Component {
             }
         });
 
-        this.setState({ stream_list },this._stream_bind_video)
+        this.setState({ stream_list })
     }
     
-    _stream_bind_video() {
-        let { stream_list } = this.state;
-
-        let _this = this;
-        stream_list.map(item => {
-            if( item ){
-
-                let { id } = item.stream;
-                let el = _this.refs[`list-video-${id}`];
-    
-                let { stream, member } = item;
-                if( stream.located() ){
-                    emedia.mgr.streamBindVideo(stream, el);
-                }else {
-                    emedia.mgr.subscribe(member, stream, true, true, el)
-                }
-            }
-        });
-    }
-
-    
-    _get_header_el() { 
-
-        let { roomName, stream_list } = this.state;
-        let admin = '';
-        stream_list.map(item => {
-            
-            if(
-                item &&
-                item.member && 
-                item.member.role == 7
-            ) {
-                admin = item.member.name.slice(-5);
-                return
-            }
-        })
-
-        return (
-            <div className="info">
-                <div>
-                    <img src={get_img_url_by_name('logo-text-room')}/>
-                </div>
-                <div style={{lineHeight:1}}>
-                    <div>
-                        <Tooltip title={'主持人: ' + (admin || 'sqx')} placement="bottom">
-                            <img src={get_img_url_by_name('admin-icon')} style={{marginTop:'-5px'}}/>
-                        </Tooltip>
-                        {/* <span>network</span> */}
-                        <span className="name">{roomName || '房间名称'}</span>
-                    </div>
-                </div>
-
-                <div onClick={() => this.leave()} style={{cursor: 'pointer',color:'#EF413F'}}>
-                    <img src={get_img_url_by_name('leave-icon')} />
-                    <span>离开房间</span>
-                </div>
-            </div>
-        )
-    }
-    _get_drawer_component() {
-        let _this = this;
-        let { stream_list } = this.state;
-
-        function get_talkers() {
-            let talkers = 0;
-            let { stream_list } = _this.state;
-            stream_list.map(item => {
-                if(
-                    item &&
-                    item.stream &&
-                    item.stream.type != emedia.StreamType.DESKTOP
-                ){ //null 的不计数 共享桌面不计数
-                    talkers++
-                }
-            })
-            return talkers
-        }
-
-
-        return (
-            <Drawer 
-                title={`主播${get_talkers()} 观众0`}
-                placement="right"
-                closable={false}
-                visible={this.state.talker_list_show}
-                mask={false}
-                getContainer={false}
-                width="336px"
-            >
-                <img src={get_img_url_by_name('expand-icon')} className='expand-icon' onClick={this.collapse_talker_list}/>
-                { stream_list.map((item, index) => {
-                    if(index != 0 && item){
-                        return _this._get_video_item(item,index);
-                    }
-                }) }
-            </Drawer>
-        )
-    }
-
-    _get_video_item(talker_item) {
-
-        let { stream, member } = talker_item;
-        if(
-            !stream ||
-            !member ||
-            Object.keys(stream).length == 0 ||
-            Object.keys(member).length == 0 
-        ) {
-            return ''
-        }
-
-        let { id, aoff, voff } = stream;
-        let { nickName, role } = member;
-
-        let is_me = false; //判断是否是自己
-        if(
-            this.state.user_room.joinId == stream.owner.id
-        ) {
-            is_me = true
-        }
-
-
-        return (
-            <div 
-                key={id} 
-                className="item"
-            >
-
-                <div className="info">
-                    <span className="name">
-                        { nickName + (role == 7 ? '(管理员)' : '') + (is_me ? '(我)' : '')}
-                    </span>
-
-                    {/* <img src={get_img_url_by_name('no-speak-icon')}/> */}
-                    <div className="status-icon">
-                        <img 
-                            src={get_img_url_by_name('audio-icon')} 
-                            style={{marginRight:'4px',visibility: aoff ? 'hidden' : 'visible'}}/>
-                        <img 
-                            src={get_img_url_by_name('video-icon')} 
-                            style={{visibility: voff ? 'hidden' : 'visible'}}/>
-                    </div>
-                </div>
-
-                <video ref={`list-video-${id}`} autoPlay></video>
-            </div>
-        )
-
-                            
-    }
-
-    _get_footer_el() {
-        return (
-            <div className="actions-wrap">
-
-                <img src={get_img_url_by_name('apply-icon')} style={{visibility:'hidden'}}/>
-                <div className="actions" style={{width:'100px'}}> </div>
-                <img 
-                    src={get_img_url_by_name('expand-icon')} 
-                    onClick={this.expand_talker_list} 
-                    style={{visibility:this.state.talker_list_show ? 'hidden' : 'visible'}}/>
-            </div>
-        )
-    }
-    expand_talker_list = () => {
-        this.setState({
-            talker_list_show:true
-        })
-    }
-    collapse_talker_list = () => {
-        this.setState({
-            talker_list_show:false
-        })
-    }
-    
-    close_talker_model = () => {
-        this.setState({
-            talker_is_full: false
-        })
-    }
     render() {
 
         const { getFieldDecorator } = this.props.form;
 
         let { joined } = this.state;
-        let main_stream = this.state.stream_list[0]
-
         return (
             <div style={{width:'100%', height:'100%'}}>
                 {/* join compoent */}
@@ -548,18 +457,9 @@ class Room extends Component {
                 </div>
                 
                 {/* room compoent */}
-                
                 <Layout className="meeting" style={{display: joined ? 'block' : 'none'}}>
-                    <Header>
-                        {this._get_header_el()}
-                    </Header>
-                    <Content>
-                        {main_stream ? <video ref={`list-video-${main_stream.stream.id}`} autoPlay></video> : ''}
-                    </Content>
-                    {this._get_drawer_component()}
-                    <Footer>
-                        {this._get_footer_el()}
-                    </Footer>
+                    <RoomHeader {...this.state}/>
+                    <TalkerList {...this.state}/>
                 </Layout>
             </div>
         )
