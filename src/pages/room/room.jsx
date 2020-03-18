@@ -43,7 +43,7 @@ class RoomHeader extends Component {
         time: 0
     }
     componentDidMount(){
-        this.startTime()
+        // this.startTime()
     }
     componentWillUnmount() {
         clearInterval(this.timeID);
@@ -227,7 +227,8 @@ class RoomFooter extends Component {
 
     state = {
         video:this.props.video, //便于组建内操作
-        audio:this.props.audio
+        audio:this.props.audio,
+        shared_desktop: false
     }
     // 关闭或开启自己的
     async toggle_video() {
@@ -315,7 +316,7 @@ class RoomFooter extends Component {
     }
     render() {
         let { role } = this.props.user_room
-        let { audio, video, shared_desktop} = this.props
+        let { audio, video, shared_desktop} = this.state
         
         return (
             <Footer>
@@ -403,6 +404,7 @@ class Room extends Component {
                 role: undefined
             },
             stream_list: [],
+            own_stream: null,
             audio:true,
             video:true,
 
@@ -528,6 +530,8 @@ class Room extends Component {
         let { stream_list } = this.state
 
         if(stream.located()) {//自己 publish的流，添加role 属性
+            this.setState({own_stream: stream});
+
             let { role } = this.state.user_room;
             member.role = role;
         }
