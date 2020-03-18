@@ -39,6 +39,57 @@ const { Header, Content, Footer } = Layout;
 
 class RoomHeader extends Component {
 
+    state = {
+        time: 0
+    }
+    componentDidMount(){
+        this.startTime()
+    }
+    componentWillUnmount() {
+        clearInterval(this.timeID);
+    }
+    startTime() {
+        let _this = this;
+        this.timeID = setInterval(
+            () => {
+                _this.setState(state => ({
+                    time:state.time + 1
+                }))
+            },
+            1000
+        )
+    }
+    _get_tick() {
+        let { time } = this.state
+
+        function get_second(second){
+            return second<10 ? ('0'+second) : second
+        }
+        function get_minute(minute){
+            return minute<10 ? ('0'+minute) : minute
+        }
+        let time_str = ''
+        if(time < 60){
+            time_str = '00:' + get_second(time)
+        }else if(time >= 60){
+            let minute = get_minute(parseInt(time/60));
+            let surplus_second = get_second(time%60)
+            time_str = minute +':'+ surplus_second
+        }
+        return time_str
+    }
+    
+    leave = () => {
+
+        let is_confirm = window.confirm('确定退出会议吗？');
+
+        if(is_confirm){
+            emedia.mgr.exitConference();
+            window.location.reload()
+        }
+        
+    }
+
     render() {
         let { roomName, stream_list } = this.props;
         let admin = '';
@@ -62,15 +113,16 @@ class RoomHeader extends Component {
                     </div>
                     <div style={{lineHeight:1}}>
                         <div>
-                            <Tooltip title={'主持人: ' + (admin || 'sqx')} placement="bottom">
+                            <Tooltip title={'主持人: ' + (admin)} placement="bottom">
                                 <img src={get_img_url_by_name('admin-icon')} style={{marginTop:'-5px'}}/>
                             </Tooltip>
                             {/* <span>network</span> */}
-                            <span className="name">{roomName || '房间名称'}</span>
+                            <span className="name">{roomName}</span>
                         </div>
+                        <div className="time">{this._get_tick()}</div>
                     </div>
 
-                    <div onClick={() => this.leave()} style={{cursor: 'pointer',color:'#EF413F'}}>
+                    <div onClick={this.leave} style={{cursor: 'pointer',color:'#EF413F'}}>
                         <img src={get_img_url_by_name('leave-icon')} />
                         <span>离开房间</span>
                     </div>
@@ -150,7 +202,7 @@ class TalkerList extends Component {
             >
                 <img 
                     src={get_img_url_by_name('expand-icon')} 
-                    className={'toggle-icon ' + (show ? 'expand' : 'collapse')}
+                    className={'toggle-icon ' + (show ? 'collapse' : 'expand')}
                     onClick={this.toggle}
                  />
                 { stream_list.map((item) => {
@@ -171,6 +223,166 @@ class TalkerList extends Component {
     }
 }
 
+class RoomFooter extends Component {
+
+    state = {
+        video:this.props.video, //便于组建内操作
+        audio:this.props.audio
+    }
+    // 关闭或开启自己的
+    async toggle_video() {
+
+        let { role } = this.props.user_room;
+        let { own_stream } = this.props;
+        let { video } = this.state;
+        if(role == 1){
+            return
+        }
+
+        if(!own_stream) {
+            return
+        }
+
+        if(video){
+            await emedia.mgr.pauseVideo(own_stream);
+            video = !video
+            this.setState({ video })
+        }else {
+            await emedia.mgr.resumeVideo(own_stream);
+            video = !video
+            this.setState({ video })
+        }
+
+    }
+    async toggle_audio() {
+        let { role } = this.props.user_room;
+        let { own_stream } = this.props;
+        if(role == 1){
+            return
+        }
+
+        if(!own_stream) {
+            return
+        }
+
+        let { audio } = this.state
+        if(audio){
+            await emedia.mgr.pauseAudio(own_stream);
+            audio = !audio
+            this.setState({ audio })
+        }else {
+            await emedia.mgr.resumeAudio(own_stream);
+            audio = !audio
+            this.setState({ audio })
+        }
+    }
+    async share_desktop() {
+        try {
+            let _this = this; 
+
+            var options = {
+                stopSharedCallback: () => _this.stop_share_desktop()
+            }
+            await emedia.mgr.shareDesktopWithAudio(options);
+            
+            this.setState({ shared_desktop:true });
+        } catch (err) {
+            if( //用户取消也是 -201 所以两层判断
+                err.error == -201 &&
+                err.errorMessage.indexOf('ShareDesktopExtensionNotFound') > 0
+            ){
+                message.error('请确认已安装共享桌面插件 或者是否使用的 https域名');
+            }
+        }
+    }
+
+    stop_share_desktop() {
+        let { stream_list } = this.props;
+
+        stream_list.map((item) => {
+            if(
+                item &&
+                item.stream &&
+                item.stream.type == emedia.StreamType.DESKTOP
+            ){
+                emedia.mgr.unpublish(item.stream);
+            }
+        })
+        
+        this.setState({ 
+            shared_desktop:false
+        });
+    }
+    render() {
+        let { role } = this.props.user_room
+        let { audio, video, shared_desktop} = this.props
+        
+        return (
+            <Footer>
+
+                <div className="actions-wrap">
+
+                    {/* <img src={get_img_url_by_name('apply-icon')} style={{visibility:'hidden'}}/> */}
+                    <div className="actions">
+                        {
+                            <Tooltip title={ audio ? '静音' : '解除静音'}>
+                                <img src={audio ? 
+                                            get_img_url_by_name('audio-is-open-icon') : 
+                                            get_img_url_by_name('audio-is-close-icon')} 
+                                        onClick={() => this.toggle_audio()}/>
+                            </Tooltip>
+                            
+                        }
+                        {
+                            <Tooltip title={ video ? '关闭视频' : '开启视频'}>
+                                <img style={{margin:'0 10px'}}
+                                    src={video ? 
+                                        get_img_url_by_name('video-is-open-icon') : 
+                                        get_img_url_by_name('video-is-close-icon')} 
+                                    onClick={() => this.toggle_video()}/>
+                            </Tooltip>
+                        }
+                        {
+                            role == 1 ? 
+                            <Tooltip title='申请上麦'>
+                                <img 
+                                    src={get_img_url_by_name('apply-to-talker-icon')} 
+                                    onClick={() => this.apply_talker()}
+                                />
+                            </Tooltip> :
+                            <Tooltip title='下麦'>
+                                <img 
+                                    src={get_img_url_by_name('apply-to-audience-icon')} 
+                                    onClick={() => this.apply_audience()}
+                                /> 
+                            </Tooltip>
+
+                        }
+                        {
+                            shared_desktop ? 
+                            <Tooltip title='停止共享桌面'>
+                                <img 
+                                    src={get_img_url_by_name('stop-share-desktop-icon')} 
+                                    onClick={() => this.stop_share_desktop()}
+                                />
+                            </Tooltip> :
+                            <Tooltip title='共享桌面'>
+                                <img 
+                                    src={get_img_url_by_name('share-desktop-icon')} 
+                                    onClick={() => this.share_desktop()}
+                                /> 
+                            </Tooltip>
+                        }
+                    </div>
+                    {/* <img 
+                        src={get_img_url_by_name('expand-icon')} 
+                        onClick={this.expand_talker_list} 
+                        style={{visibility:this.state.talker_list_show ? 'hidden' : 'visible'}}/> */}
+                </div>
+            </Footer>
+        )
+    }
+}
 
 class Room extends Component {
     constructor(props) {
@@ -235,8 +447,6 @@ class Room extends Component {
                 _this.publish();
             })
     
-            // this.startTime()
-            
         } catch (error) { 
             if(error.error == -200){//主播人数已满
                 this.setState({ talker_is_full: true })
@@ -273,9 +483,6 @@ class Room extends Component {
         } 
     }
 
-    componentWillUnmount() {
-        clearInterval(this.timeID);
-    }
     init_emedia_callback() {
         let _this = this;
         
@@ -304,16 +511,6 @@ class Room extends Component {
 
     }
 
-    leave() {
-
-        let is_confirm = window.confirm('确定退出会议吗？');
-
-        if(is_confirm){
-            emedia.mgr.exitConference();
-            window.location.reload()
-        }
-        
-    }
     publish() {
         let { role } = this.state.user_room
         if(role == 1){//观众不推流
@@ -466,10 +663,15 @@ class Room extends Component {
                 </div>
                 
                 {/* room compoent */}
-                <Layout className="meeting" style={{display: joined ? 'block' : 'none'}}>
-                    <RoomHeader {...this.state}/>
-                    <TalkerList {...this.state}/>
-                </Layout>
+                {
+                    joined ? 
+                        <Layout className="meeting">
+                            <RoomHeader {...this.state}/>
+                            <TalkerList {...this.state}/>
+                            <RoomFooter {...this.state}/>
+                        </Layout>
+                    : <i></i>
+                }
             </div>
         )
     }

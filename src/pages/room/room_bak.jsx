@@ -886,36 +886,6 @@ class Room extends Component {
             talker_list_show:false
         })
     }
-    startTime() {
-        let _this = this;
-        this.timeID = setInterval(
-            () => {
-                _this.setState(state => ({
-                    time:state.time + 1
-                }))
-            },
-            1000
-        )
-    }
-    _get_tick() {
-        let { time } = this.state
-
-        function get_second(second){
-            return second<10 ? ('0'+second) : second
-        }
-        function get_minute(minute){
-            return minute<10 ? ('0'+minute) : minute
-        }
-        let time_str = ''
-        if(time < 60){
-            time_str = '00:' + get_second(time)
-        }else if(time >= 60){
-            let minute = get_minute(parseInt(time/60));
-            let surplus_second = get_second(time%60)
-            time_str = minute +':'+ surplus_second
-        }
-        return time_str
-    }
 
     // 获取会议信息
     get_confr_info = async () => {
