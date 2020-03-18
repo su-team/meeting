@@ -83,11 +83,20 @@ class RoomHeader extends Component {
 
 class TalkerList extends Component {
 
+    state = {
+        show:false
+    }
     componentDidMount() {
         this.streamBindVideo()
     }
     componentDidUpdate() {
         this.streamBindVideo()
+    }
+    toggle = () => {
+        let { show } = this.state;
+        this.setState({
+            show:!show
+        })
     }
     streamBindVideo = () => {
         
@@ -113,7 +122,7 @@ class TalkerList extends Component {
 
         let _this = this;
         let { stream_list } = this.props;
-    
+        let { show } = this.state
         function get_talkers() {
             let talkers = 0;
             let { stream_list } = _this.props;
@@ -134,15 +143,15 @@ class TalkerList extends Component {
                 title={`主播${get_talkers()} 观众0`}
                 placement="right"
                 closable={false}
-                visible={true}
+                visible={show}
                 mask={false}
                 getContainer={false}
                 width="336px"
             >
                 <img 
                     src={get_img_url_by_name('expand-icon')} 
-                    className='expand-icon'
-                    // onClick={this.collapse_talker_list}
+                    className={'toggle-icon ' + (show ? 'expand' : 'collapse')}
+                    onClick={this.toggle}
                  />
                 { stream_list.map((item) => {
                     if( item ){

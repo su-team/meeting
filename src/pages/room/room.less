@@ -128,7 +128,7 @@
     }
     .ant-drawer-content {
         background:rgba(0,0,0,0.8);
-        
+        overflow: visible;
         .ant-drawer-header {
             background: rgba(0, 0, 0, 0.8);
             line-height: 14px;
@@ -223,14 +223,22 @@
             }
             
         };
-        .expand-icon{
+        .toggle-icon{
+            width: 60px;
             position: absolute;
-            left: 16px;
+            left: -66px;
             bottom: 16px;
             z-index: 1;
             cursor: pointer;
-            transform: rotate(180deg);
-        }   
+        }  
+        .collapse {
+            transform-origin:120% center;
+            transform:rotate(180deg);
+            transition:100ms 200ms 
+        } 
+        .expand {
+            transition:100ms 200ms
+        }
     }
 
     .ant-layout-footer {
