@@ -151,25 +151,11 @@ class TalkerList extends Component {
         })
     }
     streamBindVideo = () => {
-        
-        let { stream_list } = this.props;
+        let { emedia } = this.props;
 
-        let _this = this;
-        stream_list.map(item => {
-            if( item ){
-
-                let { id } = item.stream;
-                let el = _this.refs[`list-video-${id}`];
-    
-                let { stream, member } = item;
-                if( stream.located() ){
-                    emedia.mgr.streamBindVideo(stream, el);
-                }else {
-                    emedia.mgr.subscribe(member, stream, true, true, el)
-                }
-            }
-        });
+        emedia.streamBindVideo(this.refs);
     }
+
     render() {
 
         let _this = this;
@@ -258,53 +244,7 @@ class RoomFooter extends Component {
         audio:this.props.audio,
         shared_desktop: false
     }
-    // 关闭或开启自己的
-    async toggle_video() {
-
-        let { role } = this.props.user_room;
-        let { own_stream } = this.props;
-        let { video } = this.state;
-        if(role == 1){
-            return
-        }
-
-        if(!own_stream) {
-            return
-        }
-
-        if(video){
-            await emedia.mgr.pauseVideo(own_stream);
-            video = !video
-            this.setState({ video })
-        }else {
-            await emedia.mgr.resumeVideo(own_stream);
-            video = !video
-            this.setState({ video })
-        }
-
-    }
-    async toggle_audio() {
-        let { role } = this.props.user_room;
-        let { own_stream } = this.props;
-        if(role == 1){
-            return
-        }
-
-        if(!own_stream) {
-            return
-        }
-
-        let { audio } = this.state
-        if(audio){
-            await emedia.mgr.pauseAudio(own_stream);
-            audio = !audio
-            this.setState({ audio })
-        }else {
-            await emedia.mgr.resumeAudio(own_stream);
-            audio = !audio
-            this.setState({ audio })
-        }
-    }
+    
     async share_desktop() {
         try {
             let _this = this; 
@@ -344,7 +284,7 @@ class RoomFooter extends Component {
     }
     render() {
         let { role } = this.props.user_room
-        let { audio, video, shared_desktop} = this.state
+        let { audio, video, shared_desktop, emedia} = this.props
         
         return (
             <Footer>
@@ -368,7 +308,7 @@ class RoomFooter extends Component {
                                     src={video ? 
                                         get_img_url_by_name('video-is-open-icon') : 
                                         get_img_url_by_name('video-is-close-icon')} 
-                                    onClick={() => this.toggle_video()}/>
+                                    onClick={() => emedia.toggle_video()}/>
                             </Tooltip>
                         }
                         {
@@ -512,6 +452,14 @@ class Room extends Component {
             let { stream_list } = _this.emedia;
             _this.setState({ stream_list })
         }
+        this.emedia.video_changed = () => {
+            let { video } = _this.emedia;
+            _this.setState({ video })
+        }
+        this.emedia.audio_changed = () => {
+            let { audio } = _this.emedia;
+            _this.setState({ audio })
+        }
     }
     
     render() {
@@ -576,7 +524,7 @@ class Room extends Component {
                             style={{margin: '-8px 0px 30px'}}>
                             <Checkbox
                                 checked={this.state.video}
-                                onChange={this.video_change}
+                                onChange={e => this.emedia.set_video(e.target.checked)}
                             >入会开启摄像头</Checkbox>
                         </Row>
 
@@ -626,8 +574,8 @@ class Room extends Component {
                     joined ? 
                         <Layout className="meeting">
                             <RoomHeader {...this.state}/>
-                            <TalkerList {...this.state}/>
-                            <RoomFooter {...this.state}/>
+                            <TalkerList {...this.state} emedia={this.emedia}/>
+                            <RoomFooter {...this.state} emedia={this.emedia}/>
                         </Layout>
                     : <i></i>
                 }

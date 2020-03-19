@@ -13,7 +13,7 @@ function Emedia() {
     this.audio = true
     this.video = true
     this.talker_is_full = false //主播已满
-
+    this.refs = {};
     this.init()
 }
 
@@ -67,7 +67,7 @@ Emedia.prototype.publish = function() {
     if(role == 1){//观众不推流
         return
     }
-    let { audio,video } = this //push 流取off(关) 的反值
+    let { audio,video } = this //push 流
     emedia.mgr.publish({ audio, video });
 }
 
@@ -94,7 +94,7 @@ Emedia.prototype._on_stream_removed = function(stream) {
         return
     }
 
-    let { stream_list } = this.state
+    let { stream_list } = this
 
     stream_list.map((item, index) => {
         if(
@@ -107,6 +107,126 @@ Emedia.prototype._on_stream_removed = function(stream) {
     });
 
     this.setState({ stream_list })
+}
+
+Emedia.prototype.streamBindVideo = function(refs) {
+    if(!refs) {
+        return
+    }
+    this.refs = refs
+    let { stream_list } = this
+    stream_list.map(item => {
+        if( item ){
+
+            let { id } = item.stream;
+            let el = refs[`list-video-${id}`];
+
+            let { stream, member } = item;
+            if( stream.located() ){
+                emedia.mgr.streamBindVideo(stream, el);
+            }else {
+                emedia.mgr.subscribe(member, stream, true, true, el)
+            }
+        }
+    });
+
+    // 当bind stream to video 就监听一下video
+    this._on_media_chanaged();
+}
+
+//监听音视频变化
+Emedia.prototype._on_media_chanaged = function() {
+
+    console.log('_on_media_chanaged');
+    
+   let _this = this;
+   for (const key in this.refs) {
+       let el = this.refs[key];
+       let stream_id = key.split('-')[2];
+       emedia.mgr.onMediaChanaged(el, function (constaints) {
+           _this.set_stream_item_changed(constaints, stream_id)
+       });
+   } 
+}
+
+Emedia.prototype.set_stream_item_changed = function(constaints, id) {
+    if(!id || !constaints) {
+        return
+    }
+
+
+    let { stream_list } = this
+    let { aoff,voff } = constaints
+    stream_list = stream_list.map(item => {
+        if(
+            item &&
+            item.stream &&
+            item.stream.id == id
+        ){
+            item.stream.aoff = aoff
+            item.stream.voff = voff
+        }
+
+        return item
+    })
+
+    console.log('set_stream_item_changed',stream_list);
+    
+    this.setState({ stream_list })
+}
+
+Emedia.prototype.set_audio = function(audio){
+    this.setState({ audio })
+}
+
+Emedia.prototype.toggle_audio = async function() {
+    let { role } = this.user_room;
+    let { own_stream } = this;
+    if(role == 1){
+        return
+    }
+
+    if(!own_stream) {
+        return
+    }
+
+    let { audio } = this
+    if(audio){
+        await emedia.mgr.pauseAudio(own_stream);
+        audio = !audio
+        this.setState({ audio })
+    }else {
+        await emedia.mgr.resumeAudio(own_stream);
+        audio = !audio
+        this.setState({ audio })
+    }
+}
+
+Emedia.prototype.set_video = function(video){
+    this.setState({ video })
+}
+Emedia.prototype.toggle_video = async function() {
+    let { role } = this.user_room;
+    let { own_stream } = this;
+    if(role == 1){
+        return
+    }
+
+    if(!own_stream) {
+        return
+    }
+
+    let { video } = this;
+
+    if(video){
+        await emedia.mgr.pauseVideo(own_stream);
+        video = !video
+        this.setState({ video })
+    }else {
+        await emedia.mgr.resumeVideo(own_stream);
+        video = !video
+        this.setState({ video })
+    }
 }
 
 Emedia.prototype.setState = function(obj) {
