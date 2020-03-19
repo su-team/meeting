@@ -395,11 +395,11 @@ class Room extends Component {
             roomName:'',
             password:'',
             nickName:'',
-            joined: false,
             loading: false,
             // join end
-
+            
             user: {},
+            joined: false,
             user_room: {
                 role: undefined
             },
