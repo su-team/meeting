@@ -18,8 +18,8 @@ import {
 import './room.less';
 
 
-import emedia from 'easemob-emedia';
 import login from './login.js'
+import Emedia from './Emedia.js'
 
 // assets
 const requireContext = require.context('../../assets/images', true, /^\.\/.*\.png$/)// 通过webpack 获取 img
@@ -213,6 +213,7 @@ class TalkerList extends Component {
                                 key={id} 
                                 className="item"
                             >
+                                <TalkerInfo {...item} />
                                 <video ref={`list-video-${id}`} autoPlay></video>
                             </div>
                         )
@@ -221,6 +222,33 @@ class TalkerList extends Component {
             </Drawer>
         )
     }
+}
+
+
+function TalkerInfo(props){
+
+    
+    let { member, stream } = props
+    let { nickName, role, is_me } = member;
+    let { aoff, voff } = stream;
+
+    return (
+        <div className="info">
+            <span className="name">
+                { nickName + (role == 7 ? '(管理员)' : '') + (is_me ? '(我)' : '')}
+            </span>
+
+            {/* <img src={get_img_url_by_name('no-speak-icon')}/> */}
+            <div className="status-icon">
+                <img 
+                    src={get_img_url_by_name('audio-icon')} 
+                    style={{marginRight:'4px',visibility: aoff ? 'hidden' : 'visible'}}/>
+                <img 
+                    src={get_img_url_by_name('video-icon')} 
+                    style={{visibility: voff ? 'hidden' : 'visible'}}/>
+            </div>
+        </div>
+    )
 }
 
 class RoomFooter extends Component {
@@ -409,6 +437,7 @@ class Room extends Component {
             video:true,
 
             talker_is_full:false, //主播已满
+
         };
 
     }
@@ -438,22 +467,7 @@ class Room extends Component {
             config:{ nickName }
         }
 
-        try {
-            const user_room = await emedia.mgr.joinRoom(params);
-    
-            let _this = this;
-            this.setState({ 
-                joined: true,
-                user_room
-            },() => {
-                _this.publish();
-            })
-    
-        } catch (error) { 
-            if(error.error == -200){//主播人数已满
-                this.setState({ talker_is_full: true })
-            }
-        }
+        this.emedia.join(params)
     }
     join_handle(role){
         var _this = this;
@@ -476,8 +490,11 @@ class Room extends Component {
 
     async componentDidMount () {
 
+        this.emedia = new Emedia();
+        
         const user = await login();
         this.setState({ user })
+
         this.init_emedia_callback();
         window.onbeforeunload=function(e){     
             var e = window.event||e;  
@@ -487,76 +504,14 @@ class Room extends Component {
 
     init_emedia_callback() {
         let _this = this;
-        
-        emedia.config({
-            restPrefix: process.env.REACT_APP_RTC_HOST
-        });
-        emedia.mgr.onStreamAdded = function (member, stream) {
-            console.log('onStreamAdded >>>', member, stream);
-
-            _this._on_stream_added(member, stream)
-        };
-        emedia.mgr.onStreamRemoved = function (member, stream) {
-            console.log('onStreamRemoved',member,stream);
-
-            _this._on_stream_removed(stream)
-        };
-        emedia.mgr.onMemberJoined = function (member) {
-            console.log('onMemberJoined',member);
-            message.success(`${member.nickName || member.name} 加入了会议`);
-        };
-
-        emedia.mgr.onMemberLeave = function (member, reason, failed) {
-            console.log('onMemberLeave', member, reason, failed);
-            message.success(`${member.nickName || member.name} 退出了会议`);
-        };
-
-    }
-
-    publish() {
-        let { role } = this.state.user_room
-        if(role == 1){//观众不推流
-            return
+        this.emedia.joined_changed = () => {
+            let { joined } = _this.emedia;
+            _this.setState({ joined })
         }
-        let { audio,video } = this.state //push 流取off(关) 的反值
-        emedia.mgr.publish({ audio, video });
-    }
-    
-    _on_stream_added(member, stream) {
-        if(!member || !stream) {
-            return
+        this.emedia.stream_list_changed = () => {
+            let { stream_list } = _this.emedia;
+            _this.setState({ stream_list })
         }
-
-        let { stream_list } = this.state
-
-        if(stream.located()) {//自己 publish的流，添加role 属性
-            this.setState({own_stream: stream});
-
-            let { role } = this.state.user_room;
-            member.role = role;
-        }
-        stream_list.push({ stream, member })
-
-        this.setState({ stream_list })
-    } 
-    _on_stream_removed(stream) {
-        if(!stream){
-            return
-        }
-
-        let { stream_list } = this.state
-
-        stream_list.map((item, index) => {
-            if(
-                item &&
-                item.stream && 
-                item.stream.id == stream.id 
-            ) {
-                stream_list.splice(index, 1)
-            }
-        });
-
-        this.setState({ stream_list })
     }
     
     render() {
