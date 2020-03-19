@@ -489,7 +489,7 @@ class Room extends Component {
         let _this = this;
         
         emedia.config({
-            restPrefix: process.env.REACT_APP_HOST
+            restPrefix: process.env.REACT_APP_RTC_HOST
         });
         emedia.mgr.onStreamAdded = function (member, stream) {
             console.log('onStreamAdded >>>', member, stream);
